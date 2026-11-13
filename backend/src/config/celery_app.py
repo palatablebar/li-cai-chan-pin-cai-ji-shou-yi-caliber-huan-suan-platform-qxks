@@ -8,6 +8,7 @@ from src.config.settings import settings
 
 TASK_HEARTBEAT = f"{settings.app_name}.heartbeat"
 TASK_DAILY = f"{settings.app_name}.daily_refresh"
+TASK_BATCH_REFRESH = f"{settings.app_name}.batch_refresh"
 
 celery_app = Celery(
     settings.app_name,

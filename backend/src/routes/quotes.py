@@ -34,6 +34,18 @@ def list_quotes(
     )
 
 
+@router.get("/versions")
+def list_versions(
+    product_id: int = Query(..., ge=1),
+    quote_date: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    principal: dict = Depends(require_roles(*READ_ROLES)),
+) -> dict:
+    """同一产品（可限定报价日）的全部来源版本：当前有效 + 已替换留痕。"""
+    return quote_controller.list_versions(db, product_id=product_id, quote_date=quote_date)
+
+
 @router.post("", status_code=201)
 def create_quote(
     payload: QuoteIn,
@@ -51,4 +63,10 @@ def import_quotes(
     db: Session = Depends(get_db),
     principal: dict = Depends(require_roles(*QUOTE_IMPORT_ROLES)),
 ) -> dict:
-    return quote_controller.import_quotes(db, [row.model_dump() for row in payload.rows], principal, request)
+    return quote_controller.import_quotes(
+        db,
+        [row.model_dump() for row in payload.rows],
+        principal,
+        request,
+        batch_key=payload.batch_key,
+    )

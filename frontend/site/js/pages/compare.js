@@ -28,10 +28,22 @@ function openView(ctx, viewRow, rerender) {
           ['复核状态', `<span class="badge ${reviewTone(item.status)}">${esc(item.status_label)}</span>`],
           ['复核人', esc(item.reviewer || '—')],
           ['复核备注', esc(item.review_note || '—')],
+          [
+            '结论来源',
+            item.is_carried
+              ? `<span class="badge info">沿用上一版复核结论（视图 #${item.carried_from_view_id}）</span>`
+              : '本批重新换算',
+          ],
+          [
+            '报价依据',
+            item.active_version_id
+              ? `<span class="mono">报价日 ${esc(item.quote_date_snapshot || '—')} · 版本 #${item.active_version_id}</span>`
+              : '<span class="muted">—</span>',
+          ],
         ])}
         <h3 style="margin:14px 0 8px;font-size:1rem;color:var(--navy)">口径说明</h3>
         <pre class="code">${esc(item.caveat || '（无）')}</pre>
-        <p class="note-line">可比年化由后端算法算出并落库；前端不重算、不改写。</p>`,
+        <p class="note-line">可比年化由后端按当前有效报价版本算出并落库；前端不重算、不改写，依据版本可在报价版本历史中追溯。</p>`,
         footer: canReview
           ? `<form id="review-form" style="display:grid;gap:10px">
               ${field({
@@ -64,6 +76,37 @@ function openView(ctx, viewRow, rerender) {
     .catch((err) => toast(errorMessage(err), 'err'));
 }
 
+function diffBanner(run, groups) {
+  const diff = run && run.metrics ? run.metrics.publish_diff : null;
+  if (!diff) return '';
+  return `<div class="panel" style="margin-bottom:14px">
+    <div class="panel-head"><h2>本批发布差异 · ${esc(run.run_no)}</h2>
+      <span class="meta">${groups.is_published ? '正式榜已切换到本批次' : '本批次未发布，正式榜仍为上一版'}</span></div>
+    <div class="panel-body">
+      <p class="note-line" style="margin-top:0">
+        重算 <b>${diff.recomputed_products}</b> 只 · 沿用原结论 <b>${diff.carried_products}</b> 只 ·
+        有效值变化 <b>${diff.changed_products}</b> 条 · 名次变化 <b>${diff.rank_changed_products}</b> 条
+        （上一版：${esc(diff.previous_run_no || '—')}）
+      </p>
+      ${
+        diff.rank_changes && diff.rank_changes.length
+          ? `<div class="table-wrap"><table class="data"><thead><tr><th>产品</th><th>同类组</th><th>名次变化</th><th>可比年化</th></tr></thead><tbody>
+              ${diff.rank_changes
+                .map(
+                  (row) => `<tr><td>${esc(row.product_name || `#${row.product_id}`)}</td><td>${esc(row.group_key)}</td>
+                  <td class="num">${row.rank_before ?? '未排名'} → ${row.rank_after ?? '未排名'}</td>
+                  <td class="num">${row.comparable_before === null ? '缺失' : fmtPct(row.comparable_before, 4)} → ${
+                    row.comparable_after === null ? '缺失' : fmtPct(row.comparable_after, 4)
+                  }</td></tr>`,
+                )
+                .join('')}
+            </tbody></table></div>`
+          : '<p class="muted">本批没有同类名次变化。</p>'
+      }
+    </div>
+  </div>`;
+}
+
 export const comparePage = {
   async render(view, ctx) {
     let runs;
@@ -87,7 +130,9 @@ export const comparePage = {
         <div class="panel-head">
           <h2>同类对比榜</h2>
           <div class="toolbar">
-            <span class="meta">${groups.items.length} 个分组 · top ${state.topN}</span>
+            <span class="meta">${groups.items.length} 个分组 · top ${state.topN}${
+              groups.is_published ? ' · 正式发布版' : ' · 历史批次（非正式榜）'
+            }</span>
             ${can(ctx.user.role, 'export:read') ? '<button class="btn sm ghost" id="export-views">导出 CSV</button>' : ''}
           </div>
         </div>
@@ -99,7 +144,7 @@ export const comparePage = {
               value: groups.run_id || '',
               options: runs.items.map((run) => ({
                 value: run.id,
-                label: `${run.run_no} · ${run.status_label} · ${run.view_count} 条`,
+                label: `${run.run_no} · ${run.is_published ? '已发布' : run.status_label} · ${run.view_count} 条`,
               })),
             })}
             ${field({
@@ -114,6 +159,7 @@ export const comparePage = {
           </div>
           <p class="note-line">
             分组 = 产品类型 + 期限档；样本 &lt;5 只不排名；风险调整 = 可比年化 ÷ 年化波动（近 30 日净值日收益标准差 × √252）。
+            榜单默认展示最新正式发布版，切换批次可回看历史；失败运行不会发布，正式榜始终保留上一版。
             ${
               currentRun
                 ? `当前批次 ${esc(currentRun.run_no)}：${
@@ -126,6 +172,7 @@ export const comparePage = {
           </p>
         </div>
       </section>
+      ${currentRun ? diffBanner(currentRun, groups) : ''}
       ${
         groups.items.length
           ? groups.items

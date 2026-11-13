@@ -10,8 +10,9 @@ from src.models.user import User  # noqa: E402
 from src.models.audit import AuditLog  # noqa: E402
 from src.models.product import Product  # noqa: E402
 from src.models.quote import Quote  # noqa: E402
+from src.models.quote_version import QuoteVersion  # noqa: E402
 from src.models.watch import Watch  # noqa: E402
 from src.models.yield_run import YieldRun  # noqa: E402
 from src.models.yield_view import YieldView  # noqa: E402
 
-__all__ = ["Base", "User", "AuditLog", "Product", "Quote", "Watch", "YieldRun", "YieldView"]
+__all__ = ["Base", "User", "AuditLog", "Product", "Quote", "QuoteVersion", "Watch", "YieldRun", "YieldView"]

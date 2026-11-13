@@ -19,6 +19,7 @@ from src.models.product import Product
 from src.models.quote import Quote
 from src.models.yield_run import YieldRun
 from src.models.yield_view import YieldView
+from src.services import yield_service
 from src.utils.csv_export import to_csv
 
 
@@ -29,9 +30,13 @@ def _fmt(value: float | None, digits: int = 2) -> str:
 def views_csv(db: Session, run_id: int | None = None) -> bytes:
     products = {product.id: product for product in db.scalars(select(Product)).all()}
     run_nos = {run.id: run.run_no for run in db.scalars(select(YieldRun)).all()}
+    target_run_id = run_id
+    if target_run_id is None:
+        published = yield_service.latest_published_run(db)
+        target_run_id = published.id if published else None
     stmt = select(YieldView)
-    if run_id:
-        stmt = stmt.where(YieldView.run_id == run_id)
+    if target_run_id:
+        stmt = stmt.where(YieldView.run_id == target_run_id)
     views = db.scalars(stmt.order_by(YieldView.run_id, YieldView.id)).all()
     headers = [
         "运行编号",
@@ -52,6 +57,8 @@ def views_csv(db: Session, run_id: int | None = None) -> bytes:
         "复核状态",
         "复核人",
         "复核备注",
+        "报价依据版本ID",
+        "是否沿用原结论",
     ]
     rows = []
     for view in views:
@@ -78,6 +85,8 @@ def views_csv(db: Session, run_id: int | None = None) -> bytes:
                 REVIEW_STATUS_LABELS.get(view.status, view.status),
                 view.reviewer or "",
                 view.review_note or flags.get("caveat", ""),
+                view.active_version_id or "",
+                "是" if view.carried_from_view_id else "否",
             ]
         )
     return to_csv(headers, rows)
@@ -97,6 +106,10 @@ def quotes_csv(db: Session) -> bytes:
         "基准上限(%)",
         "近1年年化(%)",
         "来源",
+        "来源版本",
+        "更正时间",
+        "有效版本ID",
+        "采集批次",
     ]
     rows = [
         [
@@ -110,6 +123,10 @@ def quotes_csv(db: Session) -> bytes:
             _fmt(quote.bench_high, 2),
             _fmt(quote.year_pct, 2),
             QUOTE_SOURCE_LABELS.get(quote.source, quote.source),
+            quote.source_version or "",
+            quote.corrected_at.strftime("%Y-%m-%d %H:%M:%S") if quote.corrected_at else "",
+            quote.active_version_id or "",
+            quote.batch_key or "",
         ]
         for quote in quotes
     ]
@@ -118,12 +135,16 @@ def quotes_csv(db: Session) -> bytes:
 
 def runs_csv(db: Session) -> bytes:
     runs = db.scalars(select(YieldRun).order_by(YieldRun.id)).all()
-    headers = ["运行编号", "触发方式", "状态", "产品数", "结果数", "操作人", "开始时间", "结束时间"]
+    headers = ["运行编号", "触发方式", "状态", "换算范围", "是否发布", "发布时间", "采集批次", "产品数", "结果数", "操作人", "开始时间", "结束时间"]
     rows = [
         [
             run.run_no,
             TRIGGER_LABELS.get(run.trigger, run.trigger),
             RUN_STATUS_LABELS.get(run.status, run.status),
+            "增量" if run.scope == "incremental" else "全量",
+            "是" if run.is_published else "否",
+            run.published_at.strftime("%Y-%m-%d %H:%M:%S") if run.published_at else "",
+            run.batch_key or "",
             run.product_count,
             run.view_count,
             run.operator_email,

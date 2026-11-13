@@ -51,7 +51,7 @@ def overview(db: Session) -> dict:
     watches_total = db.scalar(select(func.count()).select_from(Watch)) or 0
     watch_pending = db.scalar(select(func.count()).select_from(Watch).where(Watch.status == "pending")) or 0
 
-    latest_run = db.scalar(select(YieldRun).order_by(YieldRun.id.desc()).limit(1))
+    latest_run = yield_service.latest_published_run(db) or yield_service.latest_run_any(db)
     latest_id = latest_run.id if latest_run else None
     views = (
         db.scalars(select(YieldView).where(YieldView.run_id == latest_id)).all() if latest_id else []
@@ -80,7 +80,7 @@ def overview(db: Session) -> dict:
         for level in RISK_LEVEL_ORDER
     ]
 
-    groups = yield_service.groups(db, latest_id, top_n=3)["items"] if latest_id else []
+    groups = yield_service.groups(db, latest_id, top_n=3, hide_fee=False)["items"] if latest_id else []
     metrics = (latest_run.metrics or {}) if latest_run else {}
 
     today = local_now().date()
@@ -126,6 +126,9 @@ def overview(db: Session) -> dict:
             "run_no": latest_run.run_no,
             "status": latest_run.status,
             "status_label": yield_service.RUN_STATUS_LABELS.get(latest_run.status, latest_run.status),
+            "scope": latest_run.scope,
+            "is_published": latest_run.is_published,
+            "published_at": iso_utc(latest_run.published_at),
             "started_at": iso_utc(latest_run.started_at),
             "view_count": latest_run.view_count,
             "top_group": metrics.get("top_group"),

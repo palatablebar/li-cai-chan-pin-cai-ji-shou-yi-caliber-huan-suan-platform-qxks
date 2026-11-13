@@ -27,6 +27,26 @@ CREATE TABLE products (
     updated_at      TIMESTAMP    NOT NULL
 );
 
+CREATE TABLE quote_versions (
+    id              SERIAL PRIMARY KEY,
+    product_id      INTEGER      NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    quote_date      DATE         NOT NULL,
+    nav             DOUBLE PRECISION,
+    seven_day_pct   DOUBLE PRECISION,
+    wanfen_yield    DOUBLE PRECISION,
+    bench_low       DOUBLE PRECISION,
+    bench_high      DOUBLE PRECISION,
+    year_pct        DOUBLE PRECISION,
+    source          VARCHAR(20)  NOT NULL DEFAULT 'import',
+    source_version  VARCHAR(80)  NOT NULL DEFAULT '',
+    corrected_at    TIMESTAMP    NOT NULL,
+    batch_key       VARCHAR(120),
+    status          VARCHAR(16)  NOT NULL DEFAULT 'active',   -- active / superseded
+    created_at      TIMESTAMP    NOT NULL,
+    CONSTRAINT uq_quote_version_source UNIQUE (product_id, quote_date, source_version)
+);
+CREATE INDEX ix_quote_version_lookup ON quote_versions (product_id, quote_date, corrected_at);
+
 CREATE TABLE quotes (
     id              SERIAL PRIMARY KEY,
     product_id      INTEGER      NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -38,7 +58,12 @@ CREATE TABLE quotes (
     bench_high      DOUBLE PRECISION,
     year_pct        DOUBLE PRECISION,
     source          VARCHAR(20)  NOT NULL DEFAULT 'seed',
+    source_version  VARCHAR(80),
+    corrected_at    TIMESTAMP,
+    batch_key       VARCHAR(120),
+    active_version_id INTEGER    REFERENCES quote_versions(id) ON DELETE SET NULL,
     created_at      TIMESTAMP    NOT NULL,
+    updated_at      TIMESTAMP    NOT NULL,
     CONSTRAINT uq_quotes_product_date UNIQUE (product_id, quote_date)
 );
 
@@ -66,9 +91,16 @@ CREATE TABLE yield_runs (
     metrics         JSON,
     log_text        TEXT,
     seed_key        VARCHAR(120) UNIQUE,
+    batch_key       VARCHAR(120),
+    scope           VARCHAR(16)  NOT NULL DEFAULT 'full',   -- full / incremental
+    is_published    BOOLEAN      NOT NULL DEFAULT FALSE,
+    published_at    TIMESTAMP,
+    supersedes_run_id INTEGER,
     started_at      TIMESTAMP    NOT NULL,
     finished_at     TIMESTAMP
 );
+CREATE INDEX ix_yield_runs_published ON yield_runs (is_published);
+CREATE INDEX ix_yield_runs_batch_key ON yield_runs (batch_key);
 
 CREATE TABLE yield_views (
     id              SERIAL PRIMARY KEY,
@@ -87,6 +119,9 @@ CREATE TABLE yield_views (
     note            TEXT,
     reviewer        VARCHAR(160),
     review_note     TEXT,
+    quote_date_snapshot DATE,
+    active_version_id INTEGER,
+    carried_from_view_id INTEGER,
     created_at      TIMESTAMP    NOT NULL,
     updated_at      TIMESTAMP    NOT NULL,
     CONSTRAINT uq_views_run_product UNIQUE (run_id, product_id)

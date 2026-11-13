@@ -1,9 +1,10 @@
-"""幂等 seed：3 账号 / 68 只产品 / 340 条报价 / 12 条关注 / 1 次换算运行 → 68 条结果。
+"""幂等 seed：3 账号 / 68 只产品 / 340 条报价（含版本流水）/ 12 条关注 / 1 次换算运行 → 68 条结果。
 
 自然键 upsert：
   users.email
   products.code
   quotes(product_id, quote_date)
+  quote_versions(product_id, quote_date, source_version)
   watches(product_id, kind)
   yield_runs.seed_key
   yield_views(run_id, product_id)   —— 只刷新算法字段，不覆盖人工复核状态
@@ -13,14 +14,16 @@
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 
 from src.config.database import session_scope
+from src.constants.enums import QuoteVersionStatus
 from src.models.audit import AuditLog
 from src.models.product import Product
 from src.models.quote import Quote
+from src.models.quote_version import QuoteVersion
 from src.models.user import User
 from src.models.watch import Watch
 from src.models.yield_run import YieldRun
@@ -85,6 +88,7 @@ def ensure_quotes(db) -> int:
         for quote in db.scalars(select(Quote)).all()
     }
     added = 0
+    # seed 的更正时间固定锚定报价日 18:00（UTC 存储），保证重复执行逐字一致
     for row in QUOTES:
         product_id = codes.get(row["product_code"])
         if product_id is None:
@@ -92,6 +96,25 @@ def ensure_quotes(db) -> int:
         key = (product_id, row["quote_date"])
         if key in existing:
             continue
+        source_version = f"seed:{row['quote_date'].isoformat()}"
+        corrected_at = datetime.combine(row["quote_date"], datetime.min.time()).replace(hour=18)
+        version = QuoteVersion(
+            product_id=product_id,
+            quote_date=row["quote_date"],
+            nav=row["nav"],
+            seven_day_pct=row["seven_day_pct"],
+            wanfen_yield=row["wanfen_yield"],
+            bench_low=row["bench_low"],
+            bench_high=row["bench_high"],
+            year_pct=row["year_pct"],
+            source=row["source"],
+            source_version=source_version,
+            corrected_at=corrected_at,
+            batch_key="seed-batch-1",
+            status=QuoteVersionStatus.ACTIVE.value,
+        )
+        db.add(version)
+        db.flush()
         db.add(
             Quote(
                 product_id=product_id,
@@ -103,6 +126,10 @@ def ensure_quotes(db) -> int:
                 bench_high=row["bench_high"],
                 year_pct=row["year_pct"],
                 source=row["source"],
+                source_version=source_version,
+                corrected_at=corrected_at,
+                batch_key="seed-batch-1",
+                active_version_id=version.id,
             )
         )
         existing.add(key)

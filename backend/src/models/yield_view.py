@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models import Base
@@ -30,5 +30,10 @@ class YieldView(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewer: Mapped[str | None] = mapped_column(String(160), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 本条结果换算时实际使用的报价依据（对应 quote_versions.active 行），保证名次可追溯
+    quote_date_snapshot: Mapped[object] = mapped_column(Date, nullable=True)
+    active_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 未变化产品沿用上一版复核结论时记录来源视图；本批重算的产品为 None
+    carried_from_view_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

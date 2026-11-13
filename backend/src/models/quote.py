@@ -1,4 +1,8 @@
-"""每日行情报价：5 个交易日 × 68 只 = 340 条；四个口径字段允许缺失（缺失不猜）。"""
+"""每日行情报价（当前有效值表）：每个产品 + 报价日仅一条，内容指向 quote_versions 的 active 版本。
+
+机构补发同日收益时不改写历史：新版本先落 quote_versions，再由服务层把本表替换成新有效值，
+旧版本在 quote_versions 中以 superseded 状态保留，换算依据可追溯。
+"""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -24,4 +28,11 @@ class Quote(Base):
     bench_high: Mapped[float | None] = mapped_column(Float, nullable=True)
     year_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="seed")
+    source_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    corrected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    batch_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    active_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quote_versions.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

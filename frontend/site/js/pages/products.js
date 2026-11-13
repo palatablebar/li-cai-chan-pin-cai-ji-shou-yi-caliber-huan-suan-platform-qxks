@@ -7,7 +7,7 @@ const state = { q: '', type: '', risk_level: '', bucket: '', issuer: '', active:
 function quoteRows(quotes) {
   if (!quotes || !quotes.length) return '<p class="muted">该产品还没有报价记录。</p>';
   return `<div class="table-wrap"><table class="data" style="min-width:0">
-    <thead><tr><th>报价日</th><th>净值</th><th>七日年化</th><th>万份收益</th><th>基准区间</th></tr></thead>
+    <thead><tr><th>报价日</th><th>净值</th><th>七日年化</th><th>万份收益</th><th>基准区间</th><th>更正时间</th></tr></thead>
     <tbody>${quotes
       .map(
         (row) => `<tr><td class="mono">${esc(row.quote_date)}</td>
@@ -18,15 +18,36 @@ function quoteRows(quotes) {
           row.bench_low === null || row.bench_high === null
             ? '—'
             : `${row.bench_low.toFixed(2)}% ~ ${row.bench_high.toFixed(2)}%`
-        }</td></tr>`,
+        }</td>
+        <td>${row.corrected_at ? fmtTime(row.corrected_at) : '<span class="muted">—</span>'}</td></tr>`,
+      )
+      .join('')}</tbody></table></div>`;
+}
+
+function versionRows(versions) {
+  if (!versions || !versions.length) return '<p class="muted">暂无版本流水。</p>';
+  return `<div class="table-wrap"><table class="data" style="min-width:0">
+    <thead><tr><th>状态</th><th>来源版本</th><th>更正时间</th><th>七日年化</th><th>万份收益</th><th>采集批次</th></tr></thead>
+    <tbody>${versions
+      .map(
+        (row) => `<tr>
+        <td><span class="badge ${row.is_effective ? 'ok' : 'pending warn'}">${esc(row.status_label)}</span></td>
+        <td class="mono">${esc(row.source_version || '—')}</td>
+        <td>${fmtTime(row.corrected_at)}</td>
+        <td class="num">${row.seven_day_pct === null ? '—' : `${row.seven_day_pct.toFixed(2)}%`}</td>
+        <td class="num">${row.wanfen_yield === null ? '—' : row.wanfen_yield.toFixed(4)}</td>
+        <td class="mono">${esc(row.batch_key || '—')}</td>
+      </tr>`,
       )
       .join('')}</tbody></table></div>`;
 }
 
 function openDetail(view, ctx, productId) {
-  api
-    .get(`/api/products/${productId}`)
-    .then((data) => {
+  Promise.all([
+    api.get(`/api/products/${productId}`),
+    api.get(`/api/quotes/versions`, { product_id: productId, limit: 20 }),
+  ])
+    .then(([data, versionData]) => {
       const writable = can(ctx.user.role, 'product:write');
       const latestView = data.view;
       const { root, close } = drawer({
@@ -59,9 +80,11 @@ function openDetail(view, ctx, productId) {
           }
           <dt>备注</dt><dd>${esc(data.note || '—')}</dd>
         </dl>
-        <h3 style="margin:14px 0 8px;font-size:1rem;color:var(--navy)">近 5 个交易日报价</h3>
+        <h3 style="margin:14px 0 8px;font-size:1rem;color:var(--navy)">近 5 个交易日有效报价</h3>
         ${quoteRows(data.quotes)}
-        <p class="note-line">报价原样展示；可比年化由后端按口径优先级换算，前端只做展示。</p>`,
+        <h3 style="margin:14px 0 8px;font-size:1rem;color:var(--navy)">报价版本历史（含已替换版本）</h3>
+        ${versionRows(versionData.items)}
+        <p class="note-line">同一报价日按「机构 + 报价日 + 更正时间」选当前有效值；被替换版本保留，换算结果回链依据版本。</p>`,
         footer: writable
           ? `<button class="btn ghost" data-toggle>${data.active ? '标记为停售' : '恢复在售'}</button>`
           : '<span class="mono muted">客户经理角色：只读，不展示费率明细</span>',

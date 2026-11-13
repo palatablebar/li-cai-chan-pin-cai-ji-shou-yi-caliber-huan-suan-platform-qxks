@@ -39,13 +39,14 @@
 
 ## 3. 功能模块
 
-1. **产品库**（`/api/products`）：68 只产品的要素检索（类型 / 风险等级 / 期限档 / 机构 / 在售），详情含近 5 日报价与最近一次口径结果；管理员可登记、停售/复售。
-2. **口径换算**（`/api/yield-runs`）：一键把全部产品报价换算成可比年化，记录产品数、方法分布、分组数与日志。
-3. **对比榜**（`/api/yield-views`、`/api/yield-views/groups`）：按「类型 + 期限档」分组的前 N 名，含排名、年化波动、风险调整、置信度；口径缺失条目标 unknown 不参与排名。
-4. **复核**（`PATCH /api/yield-views/{id}/review`）：口径专员确认/驳回，保留复核人与备注。
+1. **产品库**（`/api/products`）：68 只产品的要素检索（类型 / 风险等级 / 期限档 / 机构 / 在售），详情含近 5 日有效报价、报价版本历史与最近一次口径结果；管理员可登记、停售/复售。
+2. **口径换算**（`/api/yield-runs`）：全量或按采集批次增量换算，记录产品数、方法分布、分组数、发布状态与日志；增量运行只重算受影响产品所在同类组。
+3. **对比榜**（`/api/yield-views`、`/api/yield-views/groups`）：默认读最新**正式发布版**，按「类型 + 期限档」分组的前 N 名，含排名、年化波动、风险调整、置信度；口径缺失条目标 unknown 不参与排名。
+4. **复核**（`PATCH /api/yield-views/{id}/review`）：口径专员确认/驳回，保留复核人与备注；未变化产品在后续运行中沿用原复核结论。
 5. **关注与到期**（`/api/watchlist`）：到期提醒与排名提醒，带剩余天数与 7 天内到期统计。
-6. **导入与导出**（`/api/quotes`、`/api/exports/views.csv`）：单条/批量写入报价，自然键冲突 409；CSV 导出带 UTF-8 BOM。
+6. **导入与导出**（`/api/quotes`、`/api/exports/views.csv`）：支持机构晚间补发的版本化导入与报价版本历史查询（`/api/quotes/versions`）；CSV 导出带 UTF-8 BOM。
 7. **审计**（`/api/audit`）：登录、产品维护、报价导入、换算、复核、导出全量留痕（HTTP 中间件 + 领域动作两层）。
+8. **发布差异**（`/api/yield-runs/publish-diff`）：每个已发布批次给出本批更新、名次变化与分组发布前后对照。
 
 ## 4. 快速启动
 
@@ -88,7 +89,7 @@ docker compose exec -T backend python -m pytest tests -q
 backend/
   src/config         settings / app 装配 / database / celery
   src/constants      enums(共享枚举) / roles(权限) / limits / log_templates
-  src/models         product / quote / watch / yield_run / yield_view / user / audit
+  src/models         product / quote / quote_version / watch / yield_run / yield_view / user / audit
   src/schemas        product / quote / yield / watch / auth / common
   src/services       yield_math(算法) / product / quote / yield / watch / export / overview / audit / auth
   src/controllers    产品 / 报价 / 换算 / 关注 / 导出 / 认证
@@ -128,6 +129,26 @@ frontend/site/
 - 样本 < 5 只 → 不排名（`peer_rank = null`，`sample_short`）；
 - 排名并列时按产品编号升序，保证同一批数据两次运行结果一致。
 
+### 机制 C｜机构补发的版本化、增量重算与正式榜发布
+
+机构每晚补发同日收益，同一产品同一天会收到来源版本与更正时间不同的记录，系统不允许新文件直接覆盖旧值：
+
+1. **版本留痕与有效值选择**：每次导入先落 `quote_versions`（自然键 `product_id + quote_date + source_version`），
+   按「机构（产品）+ 报价日 + 更正时间」选当前有效值——更正时间更晚的版本成为 `active`，
+   旧版本标 `superseded` 原样保留；更正时间更早的迟到版本只留痕、不改变有效值。
+   `quotes` 表每个产品+报价日始终只有一条当前有效值并回链 active 版本，换算依据可追溯。
+2. **采集重试幂等**：同一 `source_version` 重复投递只计 `duplicate` 不新增版本；
+   同一 `batch_key` 触发换算直接返回已有运行，不新增结果。
+3. **只重算受影响同类组**：批次换算先定位有效值发生变化的产品，只重算它们所在的
+   「类型 + 期限档」分组；组外产品整行沿用上一版 `yield_views`（含人工复核结论，标记 `carried_from_view_id`）。
+   组内产品若换算值未变化，同样沿用原复核结论；值变化才回到待复核。
+4. **正式榜一次性切换**：运行先把自己的视图落库暂存，成功后在同一事务内置 `is_published` 切换发布指针；
+   运行失败（SAVEPOINT 回滚）不发布，客户侧对比榜保留上一版。对比榜/导出默认读最新发布版，显式传 `run_id` 可回看历史。
+5. **发布前后差异**：每个发布批次的 `metrics.publish_diff` 与 `/api/yield-runs/publish-diff`
+   给出本批更新（发布前/后可比、口径、名次）、名次变化清单、各分组榜首与样本量的发布前后对照，页面同步展示。
+6. **兼容传统补录**：不带 `corrected_at` 的单条手工补录维持「产品 + 报价日」重复即 409 的原契约；
+   带 `corrected_at` 自动走版本化通道。
+
 **实测锚点（seed 保证，可由 `GET /api/yield-views` 复现）**
 
 - 「江城稳健 90 天」七日年化 2.31% → 可比 **2.31%**，method `direct`；
@@ -147,14 +168,16 @@ frontend/site/
 | 置信度 `high/medium/low/none` | `backend/src/constants/enums.py`(`Confidence`) | `js/config.js`(`ENUMS.confidence`) |
 | 复核状态 `pending/confirmed/dismissed` | `backend/src/constants/enums.py`(`ReviewStatus`) | `js/config.js`(`ENUMS.review`) |
 | 运行状态 `running/success/partial/failed` | `backend/src/constants/enums.py`(`RunStatus`) | `js/config.js`(`ENUMS.runStatus`) |
+| 报价版本状态 `active/superseded`、换算范围 `full/incremental` | `enums.py`(`QuoteVersionStatus`) / `yield_runs.scope` | `js/config.js`(`ENUMS.quoteVersionStatus`/`runScope`) |
 | 关注类型/状态 `expire|rank`、`pending/notified/done` | `backend/src/constants/enums.py`(`WatchKind`/`WatchStatus`) | `js/config.js`(`ENUMS.watchKind`/`watchStatus`) |
 
 ## 10. 种子数据与幂等
 
 - `backend/scripts/demo_config.py`：68 只产品（手工命名，覆盖 4 类 / R1-R5 / 4 个期限档）、
   5 个交易日 × 68 条 = 340 条报价（锚定 2026-11-09 ~ 2026-11-13）、12 条关注；
-- 自然键：`users.email`、`products.code`、`quotes(product_id, quote_date)`、`watches(product_id, kind)`、
-  `yield_runs.seed_key`、`yield_views(run_id, product_id)`、`audit_logs.seed_key`；
+- 自然键：`users.email`、`products.code`、`quotes(product_id, quote_date)`、
+  `quote_versions(product_id, quote_date, source_version)`、`watches(product_id, kind)`、
+  `yield_runs.seed_key`（批次重试另按 `batch_key` 幂等）、`yield_views(run_id, product_id)`、`audit_logs.seed_key`；
 - 重复执行只补缺失行，**不覆盖人工复核状态**（`yield_views.status/reviewer/review_note` 保留）；
 - 结束打印一行固定契约（键名与顺序按 batch-plan）：
   `SEED_SUMMARY brand=yieldbook users=3 sources=68 runs=1 findings=68 pending=68`

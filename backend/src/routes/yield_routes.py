@@ -26,6 +26,16 @@ def list_runs(
     return yield_controller.list_runs(db, status=status, limit=page.limit, offset=page.offset)
 
 
+@router.get("/yield-runs/publish-diff")
+def get_publish_diff(
+    run_id: int | None = None,
+    db: Session = Depends(get_db),
+    principal: dict = Depends(require_roles(*READ_ROLES)),
+) -> dict:
+    """发布前后差异：本批更新、名次变化、分组榜首发布前后对照。"""
+    return yield_controller.publish_diff(db, run_id)
+
+
 @router.get("/yield-runs/{run_id}")
 def get_run(
     run_id: int,
@@ -52,7 +62,7 @@ def list_groups(
     db: Session = Depends(get_db),
     principal: dict = Depends(require_roles(*READ_ROLES)),
 ) -> dict:
-    return yield_controller.groups(db, run_id, top_n)
+    return yield_controller.groups(db, run_id, top_n, principal)
 
 
 @router.get("/yield-views")

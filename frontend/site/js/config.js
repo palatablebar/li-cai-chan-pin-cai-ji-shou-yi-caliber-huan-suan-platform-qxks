@@ -128,6 +128,14 @@ export const ENUMS = {
     import: '机构批量导入',
     manual: '手工补录',
   },
+  quoteVersionStatus: {
+    active: '当前有效',
+    superseded: '已替换',
+  },
+  runScope: {
+    full: '全量',
+    incremental: '增量',
+  },
 };
 
 export function can(role, permission) {
@@ -146,6 +154,10 @@ export function reviewTone(status) {
 
 export function runTone(status) {
   return { success: 'ok', partial: 'medium', failed: 'danger', running: 'info' }[status] || 'info';
+}
+
+export function versionTone(status) {
+  return { active: 'ok', superseded: 'pending warn' }[status] || 'info';
 }
 
 export function riskTone(level) {

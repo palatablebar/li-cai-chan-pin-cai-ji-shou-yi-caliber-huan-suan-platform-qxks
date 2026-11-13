@@ -192,3 +192,16 @@ QUOTE_SOURCE_LABELS: dict[str, str] = {
     QuoteSource.IMPORT.value: "机构批量导入",
     QuoteSource.MANUAL.value: "手工补录",
 }
+
+
+class QuoteVersionStatus(StrEnum):
+    """同一产品同一报价日的版本状态：仅一条 active（当前有效值），其余 superseded 留痕。"""
+
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+
+
+QUOTE_VERSION_STATUS_LABELS: dict[str, str] = {
+    QuoteVersionStatus.ACTIVE.value: "当前有效",
+    QuoteVersionStatus.SUPERSEDED.value: "已替换",
+}

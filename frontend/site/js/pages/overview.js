@@ -74,6 +74,13 @@ export const overviewPage = {
                   ? `${kv([
                       ['运行编号', `<span class="mono">${esc(latest.run_no)}</span>`],
                       ['状态', `<span class="badge ${runTone(latest.status)}">${esc(latest.status_label)}</span>`],
+                      [
+                        '正式榜',
+                        latest.is_published
+                          ? '<span class="badge ok">已发布（客户可见）</span>'
+                          : '<span class="badge pending warn">未发布，保留上一版</span>',
+                      ],
+                      ['换算范围', esc(ENUMS.runScope[latest.scope] || latest.scope || '全量')],
                       ['结果条数', `${latest.view_count} 条（缺失 ${data.unknown_total}）`],
                       ['开始时间', fmtTime(latest.started_at)],
                       ['平均可比', fmtPct(data.avg_comparable_pct, 4)],
@@ -84,7 +91,7 @@ export const overviewPage = {
                           : '—',
                       ],
                     ])}
-                    <p class="note-line">换算规则：七日年化直取 → 万份收益 ×365/10000 → 净值区间年化 → 基准中值；全缺 → unknown。</p>`
+                    <p class="note-line">换算规则：七日年化直取 → 万份收益 ×365/10000 → 净值区间年化 → 基准中值；全缺 → unknown。补发只重算受影响同类组，发布一次性切换。</p>`
                   : emptyState({ title: '还没有换算记录', hint: '到「换算与导入」发起一次口径换算。' })
               }
             </div>
